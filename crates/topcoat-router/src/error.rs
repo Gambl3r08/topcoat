@@ -311,6 +311,17 @@ mod tests {
     }
 
     #[test]
+    fn validation_errors_map_to_422_not_500() {
+        let mut errors = ValidationErrors::new();
+        errors.add("email", "email is required");
+        let error: Error = errors.into();
+
+        let response = error_into_response(&Cx::default(), error);
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[test]
     fn an_error_that_is_not_on_the_list_still_maps_to_500() {
         let error: Error = std::io::Error::other("boom").into();
 

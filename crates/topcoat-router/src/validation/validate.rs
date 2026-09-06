@@ -74,8 +74,8 @@ where
 /// query runs.
 ///
 /// Impls without an `.await` (a pure context read) need
-/// `#[allow(clippy::unused_async_trait_impl)]`, like sync [`FromRequest`](crate::request::FromRequest)
-/// impls.
+/// `#[allow(clippy::unused_async_trait_impl)]`, like sync
+/// [`FromRequest`](crate::request::FromRequest) impls.
 ///
 /// ```rust
 /// use topcoat::{
@@ -140,6 +140,9 @@ where
 /// failure responds `422 Unprocessable Entity`. Wrap it in [`Option`] to keep
 /// the body optional.
 ///
+/// Only [`Validate`] runs here. If the type also implements [`ValidateWithCx`],
+/// call `validate_cx` in the handler; context checks never run in the extractor.
+///
 /// ```rust
 /// use serde::Deserialize;
 /// use topcoat::{
@@ -166,7 +169,6 @@ where
 /// }
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
-#[must_use]
 pub struct Validated<T>(pub T);
 
 impl<T> From<T> for Validated<T> {
@@ -285,6 +287,61 @@ mod tests {
 
     fn cx_with_db(db: FakeDb) -> Cx {
         CxTestBuilder::new().app_context(db).build()
+    }
+
+    struct Team {
+        lead: UniqueName,
+        members: Vec<UniqueName>,
+    }
+
+    impl ValidateWithCx for Team {
+        async fn validate_cx(&self, cx: &Cx) -> Result<(), ValidationErrors> {
+            let mut errors = ValidationErrors::new();
+            errors.nest_cx("lead", &self.lead, cx).await;
+            errors.nest_each_cx("members", &self.members, cx).await;
+            errors.into_result()
+        }
+    }
+
+    #[tokio::test]
+    async fn nest_cx_prefixes_async_failures() {
+        let cx = cx_with_db(FakeDb {
+            taken: vec!["ada".to_owned()],
+        });
+        let team = Team {
+            lead: UniqueName {
+                name: "ada".to_owned(),
+            },
+            members: vec![
+                UniqueName {
+                    name: "grace".to_owned(),
+                },
+                UniqueName {
+                    name: "ada".to_owned(),
+                },
+            ],
+        };
+        let errors = team.validate_cx(&cx).await.expect_err("taken names fail");
+
+        assert!(errors.has_field("lead.name"));
+        assert!(errors.has_field("members[1].name"));
+        assert!(!errors.has_field("members[0].name"));
+        assert_eq!(
+            errors.field("lead.name").next().map(|error| error.code()),
+            Some(Some("taken"))
+        );
+    }
+
+    #[tokio::test]
+    async fn nest_cx_appends_nothing_when_inner_is_valid() {
+        let cx = cx_with_db(FakeDb::default());
+        let team = Team {
+            lead: UniqueName {
+                name: "ada".to_owned(),
+            },
+            members: vec![],
+        };
+        team.validate_cx(&cx).await.expect("free names pass");
     }
 
     #[tokio::test]

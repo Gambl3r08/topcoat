@@ -81,12 +81,14 @@ pub fn range<T: PartialOrd + Copy>(value: T, min: T, max: T) -> bool {
 
 /// Returns whether `value` looks like an email address.
 ///
-/// This is a fast heuristic (one `@`, a non-empty local part, a dotted domain
-/// without spaces or empty labels), not an RFC parse. Use a dedicated address
-/// parser when deliverability must be proven. Report failures with
-/// [`CODE_INVALID_EMAIL`].
+/// Leading and trailing whitespace is ignored for the check; the input is
+/// not modified. This is a fast heuristic (one `@`, a non-empty local part,
+/// a dotted domain without spaces or empty labels), not an RFC parse. Use a
+/// dedicated address parser when deliverability must be proven. Report
+/// failures with [`CODE_INVALID_EMAIL`].
 #[must_use]
 pub fn email(value: &str) -> bool {
+    let value = value.trim();
     if value.contains(' ') {
         return false;
     }
@@ -156,6 +158,7 @@ mod tests {
     fn email_accepts_ordinary_addresses() {
         assert!(email("ada@example.com"));
         assert!(email("ada.lovelace@exa-mple.co"));
+        assert!(email("  ada@example.com "));
     }
 
     #[test]

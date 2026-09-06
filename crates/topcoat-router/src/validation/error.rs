@@ -5,7 +5,7 @@ use http::{
 use serde::{Deserialize, Serialize};
 use topcoat_core::{context::Cx, error::Result};
 
-use super::validate::Validate;
+use super::validate::{Validate, ValidateWithCx};
 use crate::response::{IntoResponse, Response};
 
 /// A single field validation failure.
@@ -128,7 +128,12 @@ impl ValidationErrors {
     /// errors.check("title", false, "title cannot be empty");
     /// assert!(errors.has_field("title"));
     /// ```
-    pub fn check(&mut self, field: &str, ok: bool, message: &str) -> &mut Self {
+    pub fn check(
+        &mut self,
+        field: impl Into<String>,
+        ok: bool,
+        message: impl Into<String>,
+    ) -> &mut Self {
         if !ok {
             self.0.push(ValidationError::new(field, message));
         }
@@ -151,10 +156,10 @@ impl ValidationErrors {
     /// ```
     pub fn check_with_code(
         &mut self,
-        field: &str,
+        field: impl Into<String>,
         ok: bool,
-        code: &str,
-        message: &str,
+        code: impl Into<String>,
+        message: impl Into<String>,
     ) -> &mut Self {
         if !ok {
             self.0
@@ -227,6 +232,84 @@ impl ValidationErrors {
     pub fn nest_each<T: Validate>(&mut self, field: &str, values: &[T]) -> &mut Self {
         for (index, value) in values.iter().enumerate() {
             if let Err(inner) = value.validate() {
+                for error in inner {
+                    self.0.push(join_error(field, Some(index), &error));
+                }
+            }
+        }
+        self
+    }
+
+    /// Validates a nested value against its context rules, prefixing failures.
+    ///
+    /// The async form of [`nest`](Self::nest): runs the value's
+    /// [`ValidateWithCx`](super::validate::ValidateWithCx) impl and joins paths
+    /// the same way, so sync and async nesting stay addressable alike.
+    ///
+    /// ```rust,no_run
+    /// # use topcoat::{
+    /// #     Result,
+    /// #     context::Cx,
+    /// #     validation::{ValidateWithCx, ValidationErrors},
+    /// # };
+    /// # struct Member;
+    /// # impl ValidateWithCx for Member {
+    /// #     async fn validate_cx(&self, _cx: &Cx) -> Result<(), ValidationErrors> {
+    /// #         ValidationErrors::new().into_result()
+    /// #     }
+    /// # }
+    /// # async fn run(cx: &Cx, member: &Member) {
+    /// let mut errors = ValidationErrors::new();
+    /// errors.nest_cx("member", member, cx).await;
+    /// assert!(errors.is_empty());
+    /// # }
+    /// ```
+    pub async fn nest_cx<T: ValidateWithCx + ?Sized>(
+        &mut self,
+        field: &str,
+        value: &T,
+        cx: &Cx,
+    ) -> &mut Self {
+        if let Err(inner) = value.validate_cx(cx).await {
+            for error in inner {
+                self.0.push(join_error(field, None, &error));
+            }
+        }
+        self
+    }
+
+    /// Validates each nested value against its context rules, prefixing with index.
+    ///
+    /// The async form of [`nest_each`](Self::nest_each): paths read
+    /// `"items[0].name"`, composing with [`nest_cx`](Self::nest_cx) when an
+    /// item nests itself.
+    ///
+    /// ```rust,no_run
+    /// # use topcoat::{
+    /// #     Result,
+    /// #     context::Cx,
+    /// #     validation::{ValidateWithCx, ValidationErrors},
+    /// # };
+    /// # struct Member;
+    /// # impl ValidateWithCx for Member {
+    /// #     async fn validate_cx(&self, _cx: &Cx) -> Result<(), ValidationErrors> {
+    /// #         ValidationErrors::new().into_result()
+    /// #     }
+    /// # }
+    /// # async fn run(cx: &Cx, members: &[Member]) {
+    /// let mut errors = ValidationErrors::new();
+    /// errors.nest_each_cx("members", members, cx).await;
+    /// assert!(errors.is_empty());
+    /// # }
+    /// ```
+    pub async fn nest_each_cx<T: ValidateWithCx>(
+        &mut self,
+        field: &str,
+        values: &[T],
+        cx: &Cx,
+    ) -> &mut Self {
+        for (index, value) in values.iter().enumerate() {
+            if let Err(inner) = value.validate_cx(cx).await {
                 for error in inner {
                     self.0.push(join_error(field, Some(index), &error));
                 }

@@ -50,7 +50,7 @@ A failing request responds `422` with the shape `{"errors": [{"field", "message"
 
 # Parse and validate in one step
 
-Take [`Validated`] as the body parameter to run the extractor and the [`Validate`] impl before the handler body starts. This rejects invalid input the same way as calling `validate` first, with less code.
+Take [`Validated`] as the body parameter to run the extractor and the [`Validate`] impl before the handler body starts. This rejects invalid input the same way as calling `validate` first, with less code. Only [`Validate`] runs here; if the type also implements [`ValidateWithCx`], call it in the handler.
 
 ```rust,no_run
 # use serde::Deserialize;
