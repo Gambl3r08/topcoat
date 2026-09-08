@@ -1,6 +1,6 @@
 use serde::Serialize;
 use topcoat_core::context::Cx;
-use topcoat_view::{NodeViewParts, PartsWriter, ViewHandle};
+use topcoat_view::{NodeViewParts, PartsWriter, ViewHandle, identity::Identity};
 use uuid::Uuid;
 
 use crate::{Js, SHARD_ROUTE_PREFIX, ShardId};
@@ -26,6 +26,10 @@ impl Default for ReactiveScopeId {
 
 pub struct ReactiveScope {
     id: ReactiveScopeId,
+    /// The identity of the shard invocation, which the browser sends back
+    /// with a re-render request so the shard body derives the same
+    /// identities as the inline render.
+    identity: Identity,
     shard_id: ShardId,
     exprs: Vec<Js>,
     placeholder: ViewHandle,
@@ -34,9 +38,15 @@ pub struct ReactiveScope {
 impl ReactiveScope {
     #[inline]
     #[must_use]
-    pub fn new(shard_id: ShardId, exprs: Vec<Js>, placeholder: ViewHandle) -> Self {
+    pub fn new(
+        identity: Identity,
+        shard_id: ShardId,
+        exprs: Vec<Js>,
+        placeholder: ViewHandle,
+    ) -> Self {
         Self {
             id: ReactiveScopeId::new(),
+            identity,
             shard_id,
             exprs,
             placeholder,
@@ -48,7 +58,7 @@ impl NodeViewParts for ReactiveScope {
     fn into_view_parts(self, cx: &Cx, parts: &mut PartsWriter<'_>) {
         let shard_id = self.shard_id.as_str();
 
-        // <!-- ::topcoat::scope::start("<id>", "<path>", ["<js>", ...]) -->
+        // <!-- ::topcoat::scope::start("<id>", "<path>", "<identity>", ["<js>", ...]) -->
         //
         // Each parameter's JavaScript source is wrapped in a quoted string.
         // The source parts are sealed with the comment context, so any `"`
@@ -62,6 +72,8 @@ impl NodeViewParts for ReactiveScope {
                 .push_string_unescaped(
                     serde_json::to_string(&format!("{SHARD_ROUTE_PREFIX}/{shard_id}")).unwrap(),
                 )
+                .push_promoted_str_unescaped(&", ")
+                .push_string_unescaped(serde_json::to_string(&self.identity.to_string()).unwrap())
                 .push_promoted_str_unescaped(&", [");
             let last = self.exprs.len().saturating_sub(1);
             for (index, expr) in self.exprs.iter().enumerate() {

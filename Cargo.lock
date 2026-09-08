@@ -3182,6 +3182,7 @@ dependencies = [
 name = "topcoat-runtime-macro"
 version = "0.7.0"
 dependencies = [
+ "http",
  "quote",
  "syn",
  "tokio",
@@ -3239,6 +3240,7 @@ dependencies = [
 name = "topcoat-view"
 version = "0.7.0"
 dependencies = [
+ "base64",
  "criterion",
  "futures-core",
  "futures-util",
