@@ -3,7 +3,7 @@ use topcoat::{
     asset::{AssetBundle, RouterBuilderAssetExt},
     context::Cx,
     router::{Router, RouterBuilderDiscoverExt, page},
-    runtime::{Event, procedure, signal},
+    runtime::{Event, RouterBuilderRuntimeExt, procedure, signal},
     view::{View, view},
 };
 
@@ -12,6 +12,7 @@ async fn main() {
     topcoat::start(
         Router::builder()
             .assets(AssetBundle::load().unwrap())
+            .runtime()
             .discover()
             .build(),
     )
@@ -21,8 +22,6 @@ async fn main() {
 
 #[page("/")]
 async fn home(cx: &Cx) -> Result<impl View> {
-    let input = signal(cx, String::new);
-
     Ok(view! {
         <!DOCTYPE html>
         <html>
@@ -34,6 +33,8 @@ async fn home(cx: &Cx) -> Result<impl View> {
                 topcoat::runtime::script()
             </head>
             <body>
+                let input = signal(cx, String::new);
+
                 // `:value` renders the signal, `@change` writes back to it.
                 <input
                     :value=$(input.get())

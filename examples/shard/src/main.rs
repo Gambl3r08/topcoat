@@ -5,7 +5,7 @@ use topcoat::{
     asset::{AssetBundle, RouterBuilderAssetExt},
     context::Cx,
     router::{Router, RouterBuilderDiscoverExt, page},
-    runtime::{Event, shard, signal},
+    runtime::{Event, RouterBuilderRuntimeExt, shard, signal},
     view::{View, component, view},
 };
 
@@ -14,6 +14,7 @@ async fn main() {
     topcoat::start(
         Router::builder()
             .assets(AssetBundle::load().unwrap())
+            .runtime()
             .discover()
             .build(),
     )
@@ -33,46 +34,63 @@ async fn home() -> Result<impl View> {
                 topcoat::runtime::script()
             </head>
 
-            <body>combobox()</body>
+            <body>search()</body>
         </html>
     })
 }
 
 #[component]
-async fn combobox(cx: &Cx) -> Result<impl View> {
-    let input = signal(cx, String::new);
+async fn search(cx: &Cx) -> Result<impl View> {
+    let query = signal(cx, String::new);
 
     Ok(view! {
         <div>
-            <input :value=$(input.get()) @input=$(|e: Event| input.set(e.target.value))>
+            // The input shows the signal, and every keystroke writes back
+            // into it. Both happen in the browser.
+            <input :value=$(query.get()) @input=$(|e: Event| query.set(e.target.value))>
 
-            // The shard renders again on the server whenever `input` changes.
-            combobox_content(input: $(input.get()))
+            // The shard renders again on the server whenever `query` changes.
+            search_results(query: $(query.get()))
         </div>
     })
 }
 
 #[shard]
-async fn combobox_content(cx: &Cx, input: String) -> Result<impl View> {
-    // The input comes from the client, so a real application would validate it.
-    let results = search_fruit(cx, &input).await;
+async fn search_results(cx: &Cx, query: String) -> Result<impl View> {
+    // State the shard keeps for itself. Its current value travels with every
+    // re-render request, so it survives the re-renders `query` triggers
+    // instead of starting over at five.
+    let limit = signal(cx, || 5.0);
+
+    // Reading the limit on the server makes the shard depend on it. When the
+    // button below changes it in the browser, only the shard renders again,
+    // not the page around it.
+    let results = search_fruit(cx, &query).await;
+    // The limit comes from the client, so a real application would validate
+    // it. Clamping it keeps a bogus value from becoming a huge count.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let shown = limit.get().clamp(0.0, 100.0) as usize;
 
     Ok(view! {
         <div>
             <b>"results:"</b>
 
-            for item in results {
+            for item in results.iter().take(shown) {
                 <div>(item)</div>
+            }
+
+            if results.len() > shown {
+                <button @click=$(|_e| limit.set(limit.get() + 5.0))>"show more"</button>
             }
         </div>
     })
 }
 
 // Simulate a server-side lookup that takes half a second.
-async fn search_fruit(_cx: &Cx, input: &str) -> Vec<&'static str> {
+async fn search_fruit(_cx: &Cx, query: &str) -> Vec<&'static str> {
     tokio::time::sleep(Duration::from_secs_f32(0.5)).await;
 
-    let needle = input.to_lowercase();
+    let needle = query.to_lowercase();
 
     FRUIT
         .into_iter()

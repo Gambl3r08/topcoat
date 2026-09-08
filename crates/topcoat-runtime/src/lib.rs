@@ -5,11 +5,14 @@ mod event_handler;
 mod expr;
 mod js;
 #[cfg(feature = "router")]
-mod procedure;
+mod page;
 #[cfg(feature = "router")]
-mod reactive_scope;
+mod procedure;
+mod router;
 #[cfg(feature = "router")]
 mod shard;
+#[cfg(feature = "router")]
+mod shard_scope;
 mod signal;
 mod surrogate;
 
@@ -18,11 +21,14 @@ pub use event_handler::*;
 pub use expr::*;
 pub use js::*;
 #[cfg(feature = "router")]
-pub use procedure::*;
+pub use page::*;
 #[cfg(feature = "router")]
-pub use reactive_scope::*;
+pub use procedure::*;
+pub use router::*;
 #[cfg(feature = "router")]
 pub use shard::*;
+#[cfg(feature = "router")]
+pub use shard_scope::*;
 pub use signal::*;
 pub use surrogate::*;
 use topcoat_asset::{Asset, asset};
