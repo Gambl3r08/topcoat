@@ -3145,7 +3145,6 @@ dependencies = [
  "tokio",
  "topcoat",
  "topcoat-router-grammar",
- "uuid",
 ]
 
 [[package]]
@@ -3161,7 +3160,6 @@ dependencies = [
  "topcoat-core",
  "topcoat-router",
  "topcoat-view",
- "uuid",
 ]
 
 [[package]]
@@ -3503,7 +3501,6 @@ dependencies = [
  "getrandom 0.4.2",
  "js-sys",
  "rand 0.10.2",
- "serde_core",
  "wasm-bindgen",
 ]
 
