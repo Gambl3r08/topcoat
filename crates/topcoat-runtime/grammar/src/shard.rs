@@ -107,11 +107,18 @@ impl ToTokens for Shard {
         // The handler polls inside its own `HoistView` on both paths, so
         // parts hoisted while the shard body runs land inside the scope
         // markers, where the browser attributes them to the shard.
+        //
+        // The invocation's identity travels to the browser on the scope
+        // marker and comes back in the identity header of every re-render
+        // request, where the endpoint installs it again, so identities
+        // derived inside the shard body match between the inline render and
+        // a re-render.
         let docs = item.attrs.iter().filter(|attr| attr.path().is_ident("doc"));
         let marker = quote! {
             #(#docs)*
             #[#topcoat_view_macro::component]
             #vis async fn #ident(#component_params) -> #topcoat_error::Result<impl #topcoat_view::View> {
+                let __identity = #topcoat_view::identity::Identity::current();
                 #(
                     let (#value_idents, #js_idents) = #value_idents.into_evaluated_and_js();
                 )*
@@ -121,7 +128,8 @@ impl ToTokens for Shard {
                     )),
                 )
                 .await?;
-                let __scope = #topcoat_runtime::ReactiveScope::new(
+                let __scope = #topcoat_runtime::ShardScope::new(
+                    __identity,
                     #topcoat_runtime::ShardId::new(#id),
                     ::std::vec![#(#js_idents),*],
                     __placeholder,
@@ -138,6 +146,7 @@ impl ToTokens for Shard {
         // read.
         let handler = quote! {
             impl #ident {
+                #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
                 async fn handler(
                     __cx: &#topcoat_context::Cx,
                     #inputs
@@ -146,8 +155,10 @@ impl ToTokens for Shard {
         };
 
         // The trait implementation dispatching re-render requests to the
-        // handler: it deserializes the surrogate argument tuple from the
-        // request body and forwards to the handler positionally.
+        // handler: it deserializes the surrogate argument tuple and the
+        // signal values from the request body, installs the values and the
+        // invocation identity from the request's identity header, and
+        // forwards the arguments to the handler positionally.
         let shard = quote! {
             impl #topcoat_runtime::Shard for #ident {
                 fn id(&self) -> #topcoat_runtime::ShardId {
@@ -162,11 +173,16 @@ impl ToTokens for Shard {
                     ::std::boxed::Box::pin(async move {
                         type __Surrogate =
                             <(#(#value_tys,)*) as #topcoat_runtime::Surrogated>::Surrogate;
-                        let #topcoat_router::content::Json(__args) =
-                            <#topcoat_router::content::Json<__Surrogate> as #topcoat_router::request::FromRequest>
+                        let #topcoat_router::content::Json(__request) =
+                            <#topcoat_router::content::Json<#topcoat_runtime::ShardRequest<__Surrogate>> as #topcoat_router::request::FromRequest>
                                 ::from_request(cx, body).await?;
+                        let (__args, __signals) = __request.into_parts();
+                        let __identity = #topcoat_router::request::initial_identity(cx)?;
                         let (#(#value_idents,)*) =
                             #topcoat_runtime::Surrogate::into_real(__args);
+                        // Signals created while the handler runs resume from
+                        // the values the client sent.
+                        let cx = &cx.with(__signals);
                         // The handler's view is the outermost view of this
                         // request's build, so its content is self-contained.
                         let __view = #topcoat_view::HoistView::new(
@@ -174,6 +190,7 @@ impl ToTokens for Shard {
                                 #ident::handler(cx, #(#call_args),*),
                             ),
                         );
+                        let __view = #topcoat_view::identity::IdentityView::new(__identity, __view);
                         let __view = #topcoat_view::internal::ScopeView::new(__view);
                         #topcoat_view::ViewExt::single(__view).await
                     })

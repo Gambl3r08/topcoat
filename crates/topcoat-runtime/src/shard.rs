@@ -1,5 +1,6 @@
 use std::{hash::Hash, pin::Pin};
 
+use serde::Deserialize;
 use topcoat_core::{context::Cx, error::Result};
 use topcoat_router::{
     Body, Method, Methods, Path, PathBuf, Route, RouteFuture, RouteId, RouterBuilder,
@@ -7,7 +8,29 @@ use topcoat_router::{
 };
 use topcoat_view::ViewHandle;
 
-pub(crate) const SHARD_ROUTE_PREFIX: &str = "/_topcoat/shards";
+use crate::SignalValues;
+
+pub(crate) const SHARD_ROUTE_PREFIX: &str = "/_topcoat/runtime/shards";
+
+/// The body of a request re-rendering a shard: the current values of its
+/// arguments and of the signals its content created.
+///
+/// The identity of the shard invocation travels separately, in the
+/// request's identity header.
+#[derive(Debug, Deserialize)]
+pub struct ShardRequest<A> {
+    args: A,
+    #[serde(default)]
+    signals: SignalValues,
+}
+
+impl<A> ShardRequest<A> {
+    /// Splits the request into the arguments to hand the shard body and the
+    /// signal values to register on its request context.
+    pub fn into_parts(self) -> (A, SignalValues) {
+        (self.args, self.signals)
+    }
+}
 
 /// The identity of a shard, stable across the server and the client runtime.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

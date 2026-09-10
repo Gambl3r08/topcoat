@@ -21,23 +21,25 @@ Ok(view! {
 # }
 ```
 
-The script is served as a Topcoat [asset](../asset/index.html), so the asset bundle must be loaded on the router:
+The runtime also needs the router set up for it. [`runtime()`](RouterBuilderRuntimeExt::runtime) mounts the routes the browser script talks to on its own, and the script is served as a Topcoat [asset](../asset/index.html), so the asset bundle must be loaded as well:
 
 ```rust,no_run
 use topcoat::{
     asset::{AssetBundle, RouterBuilderAssetExt},
     router::{Router, RouterBuilderDiscoverExt},
+    runtime::RouterBuilderRuntimeExt,
 };
 
 pub fn router() -> Router {
     Router::builder()
+        .runtime()
         .discover()
         .assets(AssetBundle::load().unwrap())
         .build()
 }
 ```
 
-`.discover()` also registers the server endpoints behind [procedures](#procedures) and [shards](#shards), covered later in this guide.
+`.runtime()` covers the runtime's own routes only. The endpoints behind your [procedures](#procedures) and [shards](#shards), covered later in this guide, are annotated items that `.discover()` registers like pages and layouts.
 
 # Runtime expressions
 
@@ -75,7 +77,7 @@ Ok(view! {
 # }
 ```
 
-The initial value is computed once during the server render and serialized into the page; the browser picks it up as reactive state. A signal belongs to the page, layout, component, or shard body that creates it and lives for the rest of the request, so it can be captured by any number of runtime expressions in that body's view and handed down to the components it renders.
+The initial value is computed once during the server render and serialized into the page; the browser picks it up as reactive state. **From then on the value is user input.** The browser holds it, and anything the server later reads back from the signal **must not be trusted**. A signal belongs to the page, layout, component, or shard body that creates it. It is an ordinary value that is cheap to clone, so it can be captured by any number of runtime expressions in that body's view and handed down to the components it renders as `&Signal<T>`.
 
 In the browser, a runtime expression re-runs whenever a signal it read changes -- the text above updates the moment `count` does, with no server round-trip. Inside an expression you work with a signal through its methods: `.get()` reads the current value and `.set(...)` replaces it. Nothing changes `count` yet, though; that is what event handlers are for.
 
@@ -210,6 +212,61 @@ Ok(view! {
 ```
 
 A shard body is ordinary server code, like any component. The re-renders are served by an API endpoint exposed from your server, so a shard's arguments can be spoofed just like a procedure's and **must not be trusted**. See [`#[shard]`][shard] for the details: how re-renders behave, shard state, and registration.
+
+# Reading signals on the server
+
+A signal can also be read in plain Rust, outside any runtime expression, in the body that created it. `.get()` clones the current value and `.read()` borrows it. Both are **tracked reads**: they make the page depend on the signal, so when the signal changes in the browser, the page runs again on the server with the signal's current value and its content is replaced with the result:
+
+```rust
+# use topcoat::{Result, context::Cx, router::page, runtime::{Event, signal}, view::*};
+# async fn search_products(_cx: &Cx, _query: &str) -> Result<Vec<String>> { Ok(vec![]) }
+#[page("/search")]
+async fn search(cx: &Cx) -> Result<impl View> {
+    let query = signal(cx, String::new);
+    let products = search_products(cx, &query.get()).await?;
+
+    Ok(view! {
+        <input :value=$(query.get()) @input=$(|e: Event| query.set(e.target.value))>
+
+        for product in products {
+            <div>(product)</div>
+        }
+    })
+}
+```
+
+The input keeps working as a client-only binding, and the product list follows it through the server. On the re-run, [`signal`] starts from the value the browser sent instead of computing a fresh one, so the page picks up where the client left off. Reads inside a `$(...)` expression never make the page depend on a signal; they are the client-side path and stay in the browser.
+
+**Every value read on the server is user input and must not be trusted.** The client holds the signal and can send anything that fits its type, so validate the value before acting on it, exactly like a shard argument.
+
+The result is morphed into the page rather than swapped in. Elements that still exist are updated in place, so focus, scroll position, and what the user is typing survive a re-run, and every signal keeps its value. Give the items of a list that can reorder an `id`, so the morph follows each item to its new position instead of rewriting the items in between.
+
+To avoid re-running the whole page, use a shard: a signal tracked inside a shard re-renders only that shard, not the entire page. The shard creates the signal, reads it, and hands the browser the handlers that change it:
+
+```rust
+# use topcoat::{Result, context::Cx, runtime::{shard, signal}, view::*};
+# async fn load_page(_cx: &Cx, _page: f64) -> Result<Vec<String>> { Ok(vec![]) }
+#[shard]
+async fn paginated(cx: &Cx) -> Result<impl View> {
+    let page = signal(cx, || 1.0);
+    let items = load_page(cx, page.get()).await?;
+
+    Ok(view! {
+        for item in items {
+            <div>(item)</div>
+        }
+
+        <button @click=$(|_e| page.decrement())>"previous"</button>
+        <button @click=$(|_e| page.increment())>"next"</button>
+    })
+}
+```
+
+Clicking a button changes `page` in the browser, and because the shard read it on the server, the shard runs again with the new value and swaps in the next page of items.
+
+A shard can also take a signal from its caller, through a parameter typed `Signal<T>` and passed as `$(signal)`. The signal handle does not change when its value does, so whether a change re-renders the shard depends on how the shard body reads it. See [`#[shard]`][shard].
+
+`.get_untracked()` and `.read_untracked()` read a signal's value without making anything depend on it, for a body that wants the value a run started with but should not run again when it changes.
 
 [`Event`]: struct.Event.html
 [`expr!`]: macro.expr.html

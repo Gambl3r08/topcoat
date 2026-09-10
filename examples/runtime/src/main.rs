@@ -1,11 +1,13 @@
 mod counter;
 mod show;
+mod sort;
 
 use topcoat::{
     Result,
     asset::{AssetBundle, RouterBuilderAssetExt},
     context::Cx,
     router::{RouterBuilderDiscoverExt, Slot, error::redirect, href, layout, module_router, page},
+    runtime::RouterBuilderRuntimeExt,
     view::{View, view},
 };
 
@@ -14,6 +16,7 @@ async fn main() {
     topcoat::start(
         module_router!()
             .assets(AssetBundle::load().unwrap())
+            .runtime()
             .discover()
             .build(),
     )
@@ -34,7 +37,8 @@ async fn layout(slot: Slot<'_>) -> Result<impl View> {
             <head>
                 topcoat::dev::script()
 
-                // Signals and event handlers need the browser runtime.
+                // Signals, event handlers, and page re-runs need the
+                // browser runtime.
                 topcoat::runtime::script()
             </head>
             <body>
@@ -42,6 +46,8 @@ async fn layout(slot: Slot<'_>) -> Result<impl View> {
                     <a href=(href!(counter::page))>"counter"</a>
                     " | "
                     <a href=(href!(show::page))>"show"</a>
+                    " | "
+                    <a href=(href!(sort::page))>"sort"</a>
                 </nav>
 
                 <hr>
